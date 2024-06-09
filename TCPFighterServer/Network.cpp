@@ -14,8 +14,10 @@ SOCKET g_listenSock;
 std::map<int, Session*>g_sessionMap;
 extern std::map<int, ClientInfo*> g_clientMap;
 constexpr int SERVERPORT = 5000;
-constexpr int MAX_USER_NUM = 4;
+constexpr int MAX_USER_NUM = 30;
 constexpr int ERROR_RANGE = 50;
+constexpr int MOVE_UNIT_X = 3;
+constexpr int MOVE_UNIT_Y = 2;
 
 std::queue<int> id_q;
 std::set<int> g_disconnected_id_set;
@@ -31,10 +33,50 @@ void MAKE_PACKET_SC_ATTACK3(PACKET_SC_ATTACK3* pPSA3, int id, char dir, USHORT x
 void MAKE_PACKET_SC_DAMAGE(PACKET_SC_DAMAGE* pPSD, int attackerId, int attackedId, char hpToReduce);
 bool PROCESS_PACKET_CS_MOVE_START(int moveId, char* pPacket);
 bool PROCESS_PACKET_CS_MOVE_STOP(int stopId, char* pPacket);
+void Update();
+inline bool IsCollision_ATTACK1(ClientInfo* pAttackerCI, ClientInfo* pAttackedCI)
+{
+	int dX = abs(pAttackerCI->x - pAttackedCI->x);
+	int dY = abs(pAttackerCI->y - pAttackedCI->y);
+	bool isValidX = (dX <= dfATTACK1_RANGE_X) ? true : false;
+	bool isValidY = (dY <= dfATTACK1_RANGE_Y) ? true : false;
+	return isValidX && isValidY;
+}
+
+inline bool IsCollision_ATTACK2(ClientInfo* pAttackerCI, ClientInfo* pAttackedCI)
+{
+	int dX = abs(pAttackerCI->x - pAttackedCI->x);
+	int dY = abs(pAttackerCI->y - pAttackedCI->y);
+	bool isValidX = (dX <= dfATTACK2_RANGE_X) ? true : false;
+	bool isValidY = (dY <= dfATTACK2_RANGE_Y) ? true : false;
+	return isValidX && isValidY;
+}
+
+inline bool IsCollision_ATTACK3(ClientInfo* pAttackerCI, ClientInfo* pAttackedCI)
+{
+	int dX = abs(pAttackerCI->x - pAttackedCI->x);
+	int dY = abs(pAttackerCI->y - pAttackedCI->y);
+	bool isValidX = (dX <= dfATTACK3_RANGE_X) ? true : false;
+	bool isValidY = (dY <= dfATTACK3_RANGE_Y) ? true : false;
+	return isValidX && isValidY;
+}
 
 bool AcceptProc();
 void RecvProc(Session* pSession);
 void SendProc(Session* pSession);
+inline void EnqPacketUnicast(IN const int id,IN char* pPacket,IN const size_t packetSize)
+{
+	RingBuffer& sendRB = g_sessionMap.find(id)->second->sendBuffer;
+
+	int EnqRet = sendRB.Enqueue(pPacket, packetSize);
+	if (EnqRet == 0)
+	{
+#ifdef LOG
+		wprintf(L"Session ID : %d\tsendRingBuffer Full\t", id);
+#endif
+		disconnect(id);
+	}
+}
 inline bool isDeletedSession(const int id)
 {
 	return g_disconnected_id_set.find(id) != g_disconnected_id_set.end();
@@ -56,8 +98,6 @@ bool PROCESS_PACKET_CS_MOVE_START(int moveId, char* pPacket)
 	}
 #ifdef LOG
 	wprintf(L"Session ID : %d\tPACKET_CS_MOVE_START PROCESSING #\tMoveDir : %d\tX:%d\tY:%d\n", moveId, pPCMS->moveDir, pPCMS->x, pPCMS->y);
-	if (pPCMS->moveDir == -52)
-		__debugbreak();
 #endif
 	switch (pPCMS->moveDir)
 	{
@@ -77,6 +117,7 @@ bool PROCESS_PACKET_CS_MOVE_START(int moveId, char* pPacket)
 	}
 	pCI->x = pPCMS->x;
 	pCI->y = pPCMS->y;
+	pCI->action = pPCMS->moveDir;
 	PACKET_SC_MOVE_START PSMS;
 	MAKE_PACKET_SC_MOVE_START(&PSMS, pCI->ID, pPCMS->moveDir, pPCMS->x, pPCMS->y);
 #ifdef LOG
@@ -106,6 +147,7 @@ bool PROCESS_PACKET_CS_MOVE_STOP(int stopId, char* pPacket)
 	pCI->viewDir = pPCMS->viewDir;
 	pCI->x = pPCMS->x;
 	pCI->y = pPCMS->y;
+	pCI->action = dfPACKET_MOVE_DIR_NOMOVE;
 	PACKET_SC_MOVE_STOP PSMS;
 	MAKE_PACKET_SC_MOVE_STOP(&PSMS, pCI->ID, pCI->viewDir, pCI->x, pCI->y);
 
@@ -115,6 +157,115 @@ bool PROCESS_PACKET_CS_MOVE_STOP(int stopId, char* pPacket)
 	EnqPacketBroadCast((char*)&PSMS, sizeof(PSMS), stopId);
 	return true;
 }
+bool PROCESS_PACKET_CS_ATTACK1(int attackerId,char* pPacket)
+{
+#ifdef LOG
+	wprintf(L"Session ID : %d\t PROCESS_PACKET_CS_ATTACK1#\n", attackerId);
+#endif
+	PACKET_CS_ATTACK1* pPCA1 = (PACKET_CS_ATTACK1*)(pPacket);
+	ClientInfo* pCI = g_clientMap.find(attackerId)->second;
+	if (!(pCI->x == pPCA1->x && pCI->y == pPCA1->y))
+		__debugbreak();
+
+	PACKET_SC_ATTACK1 PSA1;
+	MAKE_PACKET_SC_ATTACK1(&PSA1, attackerId, pCI->viewDir, pCI->x, pCI->y);
+#ifdef LOG
+	wprintf(L"Session ID : %d -> Other \t PROCESS_PACKET_SC_ATTACK1 BroadCast#\n", attackerId);
+#endif
+	EnqPacketBroadCast((char*)&PSA1, sizeof(PSA1), attackerId);
+	for (auto iter = g_clientMap.begin(); iter != g_clientMap.end(); ++iter)
+	{
+		ClientInfo* pAttackedCI = iter->second;
+		if (pAttackedCI == pCI)
+			continue;
+
+		if (IsCollision_ATTACK1(pCI, pAttackedCI))
+		{
+			PACKET_SC_DAMAGE PSD;
+			MAKE_PACKET_SC_DAMAGE(&PSD, pCI->ID, pAttackedCI->ID, 10);
+			pAttackedCI->hp -= 10;
+#ifdef LOG
+			wprintf(L"Session ID : %d -> Attacked %d\t PROCESS_PACKET_SC_DAMAGE#\n", attackerId,pAttackedCI->ID);
+#endif
+			EnqPacketBroadCast((char*)&PSD, sizeof(PSD), -1);
+		}
+	}
+	return true;
+}
+
+bool PROCESS_PACKET_CS_ATTACK2(int attackerId,char* pPacket)
+{
+#ifdef LOG
+	wprintf(L"Session ID : %d\t PROCESS_PACKET_CS_ATTACK2#\n", attackerId);
+#endif
+	PACKET_CS_ATTACK2* pPCA2 = (PACKET_CS_ATTACK2*)(pPacket);
+	ClientInfo* pCI = g_clientMap.find(attackerId)->second;
+	if (!(pCI->x == pPCA2->x && pCI->y == pPCA2->y))
+		__debugbreak();
+
+	PACKET_SC_ATTACK2 PSA2;
+	MAKE_PACKET_SC_ATTACK2(&PSA2, attackerId, pCI->viewDir, pCI->x, pCI->y);
+#ifdef LOG
+	wprintf(L"Session ID : %d -> Other \t PROCESS_PACKET_SC_ATTACK2 BroadCast#\n", attackerId);
+#endif
+	EnqPacketBroadCast((char*)&PSA2, sizeof(PSA2), attackerId);
+	for (auto iter = g_clientMap.begin(); iter != g_clientMap.end(); ++iter)
+	{
+		ClientInfo* pAttackedCI = iter->second;
+		if (pAttackedCI == pCI)
+			continue;
+
+		if (IsCollision_ATTACK2(pCI, pAttackedCI))
+		{
+			PACKET_SC_DAMAGE PSD;
+			MAKE_PACKET_SC_DAMAGE(&PSD, pCI->ID, pAttackedCI->ID, 10);
+			pAttackedCI->hp -= 10;
+#ifdef LOG
+			wprintf(L"Session ID : %d -> Attacked %d\t PROCESS_PACKET_SC_DAMAGE#\n", attackerId,pAttackedCI->ID);
+#endif
+			EnqPacketBroadCast((char*)&PSD, sizeof(PSD), -1);
+		}
+	}
+	return true;
+}
+
+
+bool PROCESS_PACKET_CS_ATTACK3(int attackerId,char* pPacket)
+{
+#ifdef LOG
+	wprintf(L"Session ID : %d\t PROCESS_PACKET_CS_ATTACK3#\n", attackerId);
+#endif
+	PACKET_CS_ATTACK3* pPCA3 = (PACKET_CS_ATTACK3*)(pPacket);
+	ClientInfo* pCI = g_clientMap.find(attackerId)->second;
+	if (!(pCI->x == pPCA3->x && pCI->y == pPCA3->y))
+		__debugbreak();
+
+	PACKET_SC_ATTACK3 PSA3;
+	MAKE_PACKET_SC_ATTACK3(&PSA3, attackerId, pCI->viewDir, pCI->x, pCI->y);
+#ifdef LOG
+	wprintf(L"Session ID : %d -> Other \t PROCESS_PACKET_SC_ATTACK2 BroadCast#\n", attackerId);
+#endif
+	EnqPacketBroadCast((char*)&PSA3, sizeof(PSA3), attackerId);
+	for (auto iter = g_clientMap.begin(); iter != g_clientMap.end(); ++iter)
+	{
+		ClientInfo* pAttackedCI = iter->second;
+		if (pAttackedCI == pCI)
+			continue;
+
+		if (IsCollision_ATTACK2(pCI, pAttackedCI))
+		{
+			PACKET_SC_DAMAGE PSD;
+			MAKE_PACKET_SC_DAMAGE(&PSD, pCI->ID, pAttackedCI->ID, 20);
+			pAttackedCI->hp -= 20;
+#ifdef LOG
+			wprintf(L"Session ID : %d -> Attacked %d\t PROCESS_PACKET_SC_DAMAGE#\n", attackerId, pAttackedCI->ID);
+#endif
+			EnqPacketBroadCast((char*)&PSD, sizeof(PSD), -1);
+		}
+	}
+	return true;
+}
+
 
 bool PacketProc(int id, BYTE packetType, char* pPacket)
 {
@@ -125,11 +276,11 @@ bool PacketProc(int id, BYTE packetType, char* pPacket)
 	case dfPACKET_CS_MOVE_STOP:
 		return PROCESS_PACKET_CS_MOVE_STOP(id, pPacket);
 	case dfPACKET_CS_ATTACK1:
-		break;
+		return PROCESS_PACKET_CS_ATTACK1(id, pPacket);
 	case dfPACKET_CS_ATTACK2:
-		break;
+		return PROCESS_PACKET_CS_ATTACK2(id, pPacket);
 	case dfPACKET_CS_ATTACK3:
-		break;
+		return PROCESS_PACKET_CS_ATTACK3(id, pPacket);
 	default:
 		break;
 	}
@@ -375,19 +526,12 @@ void RecvProc(Session* pSession)
 			disconnect(pSession->id);
 			return;
 		}
-
-		//if (recvRB.GetUseSize() < sizeof(header) + header.bySize)
-		//{
-		//	return;
-		//}
-		//recvRB.MoveFront(sizeof(header));
 		char Buffer[BUFFER_SIZE];
 		int deqRet = recvRB.Dequeue(Buffer, sizeof(header) + header.bySize);
 		if (deqRet == 0)
 		{
 			return;
 		}
-
 		PacketProc(pSession->id, header.byType, Buffer);
 	}
 }
@@ -446,33 +590,39 @@ void MAKE_PACKET_SC_MOVE_STOP(PACKET_SC_MOVE_STOP* pPSMS, int id, char dir, USHO
 }
 
 
-void MAKE_PACKET_SC_ATTACK1(PACKET_SC_ATTACK1* pPSA1, int id, char dir, USHORT x, USHORT y)
+void MAKE_PACKET_SC_ATTACK1(PACKET_SC_ATTACK1* pPSA1, int id, char viewDir, USHORT x, USHORT y)
 {
+	MAKE_PACKET_HEADER(&pPSA1->header, sizeof(*pPSA1) - sizeof(pPSA1->header), dfPACKET_SC_ATTACK1);
 	pPSA1->id = id;
-	pPSA1->direction = dir;
+	pPSA1->viewDir = viewDir;
 	pPSA1->x = x;
 	pPSA1->y = y;
 }
 
-void MAKE_PACKET_SC_ATTACK2(PACKET_SC_ATTACK2* pPSA2, int id, char dir, USHORT x, USHORT y)
+void MAKE_PACKET_SC_ATTACK2(PACKET_SC_ATTACK2* pPSA2, int id, char viewDir, USHORT x, USHORT y)
 {
+	MAKE_PACKET_HEADER(&pPSA2->header, sizeof(*pPSA2) - sizeof(pPSA2->header), dfPACKET_SC_ATTACK2);
 	pPSA2->id = id;
-	pPSA2->direction = dir;
+	pPSA2->viewDir = viewDir;
 	pPSA2->x = x;
 	pPSA2->y = y;
 }
 
-void MAKE_PACKET_SC_ATTACK3(PACKET_SC_ATTACK3* pPSA3, int id, char dir, USHORT x, USHORT y)
+void MAKE_PACKET_SC_ATTACK3(PACKET_SC_ATTACK3* pPSA3, int id, char viewDir, USHORT x, USHORT y)
 {
+	MAKE_PACKET_HEADER(&pPSA3->header, sizeof(*pPSA3) - sizeof(pPSA3->header), dfPACKET_SC_ATTACK3);
 	pPSA3->id = id;
-	pPSA3->direction = dir;
+	pPSA3->viewDir = viewDir;
 	pPSA3->x = x;
 	pPSA3->y = y;
 }
 
 void MAKE_PACKET_SC_DAMAGE(PACKET_SC_DAMAGE* pPSD, int attackerId, int attackedId, char hpToReduce)
 {
+	MAKE_PACKET_HEADER(&pPSD->header, sizeof(*pPSD) - sizeof(pPSD->header), dfPACKET_SC_DAMAGE);
 	pPSD->attackerId = attackerId;
+	pPSD->attackedId = attackedId;
+	pPSD->hpToReduce = hpToReduce;
 }
 
 Session::Session(SOCKET sock, int ID)
@@ -617,5 +767,109 @@ void SendProc(Session* pSession)
 		sendRB.MoveFront(sendSize);
 		useSize = sendRB.GetUseSize();
 		directDeqSize = sendRB.DirectDequeueSize();
+	}
+}
+
+inline void HandleMoving(IN ClientInfo* pCI, IN int moveDir)
+{
+	if (pCI->x - MOVE_UNIT_X <= dfRANGE_MOVE_LEFT)
+	{
+		return;
+	}
+	else if (pCI->x + MOVE_UNIT_X >= dfRANGE_MOVE_RIGHT)
+	{
+		return;
+	}
+
+	if (pCI->y - MOVE_UNIT_Y <= dfRANGE_MOVE_TOP)
+	{
+		return;
+	}
+	else if (pCI->y + MOVE_UNIT_Y >= dfRANGE_MOVE_BOTTOM)
+	{
+		return;
+	}
+
+	switch (moveDir)
+	{
+	case dfPACKET_MOVE_DIR_LL:
+		pCI->x -= MOVE_UNIT_X;
+#ifdef LOG
+		wprintf(L"Session ID : %d #\tDIR : LL\tMove Simulate X : %d, Y : %d\n", pCI->ID, pCI->x, pCI->y);
+#endif
+		break;
+	case dfPACKET_MOVE_DIR_LU:
+		pCI->x -= MOVE_UNIT_X;
+		pCI->y -= MOVE_UNIT_Y;
+#ifdef LOG
+		wprintf(L"Session ID : %d #\tDIR : LU\tMove Simulate X : %d, Y : %d\n", pCI->ID, pCI->x, pCI->y);
+#endif
+		break;
+	case dfPACKET_MOVE_DIR_UU:
+		pCI->y -= MOVE_UNIT_Y;
+#ifdef LOG
+		wprintf(L"Session ID : %d #\tDIR : UU\tMove Simulate X : %d, Y : %d\n", pCI->ID, pCI->x, pCI->y);
+#endif
+		break;
+	case dfPACKET_MOVE_DIR_RU:
+		pCI->x += MOVE_UNIT_X;
+		pCI->y -= MOVE_UNIT_Y;
+#ifdef LOG
+		wprintf(L"Session ID : %d #\tDIR : RU\tMove Simulate X : %d, Y : %d\n", pCI->ID, pCI->x, pCI->y);
+#endif
+		break;
+	case dfPACKET_MOVE_DIR_RR:
+		pCI->x += MOVE_UNIT_X;
+#ifdef LOG
+		wprintf(L"Session ID : %d #\tDIR : RR\tMove Simulate X : %d, Y : %d\n", pCI->ID, pCI->x, pCI->y);
+#endif
+		break;
+	case dfPACKET_MOVE_DIR_RD:
+		pCI->x += MOVE_UNIT_X;
+		pCI->y += MOVE_UNIT_Y;
+#ifdef LOG
+		wprintf(L"Session ID : %d #\tDIR : RD\tMove Simulate X : %d, Y : %d\n", pCI->ID, pCI->x, pCI->y);
+#endif
+		break;
+	case dfPACKET_MOVE_DIR_DD:
+		pCI->y += MOVE_UNIT_Y;
+#ifdef LOG
+		wprintf(L"Session ID : %d #\tDIR : DD\tMove Simulate X : %d, Y : %d\n", pCI->ID, pCI->x, pCI->y);
+#endif
+		break;
+	case dfPACKET_MOVE_DIR_LD:
+		pCI->x -= MOVE_UNIT_X;
+		pCI->y += MOVE_UNIT_Y;
+#ifdef LOG
+		wprintf(L"Session ID : %d #\tDIR : LD\tMove Simulate X : %d, Y : %d\n", pCI->ID, pCI->x, pCI->y);
+#endif
+		break;
+	default:
+		__debugbreak();
+		return;
+	}
+}
+void Update()
+{
+	for (auto iter = g_clientMap.begin(); iter != g_clientMap.end(); ++iter)
+	{
+		ClientInfo* pCI = iter->second;
+		if (isDeletedSession(pCI->ID))
+		{
+			continue;
+		}
+
+		if (pCI->action != dfPACKET_MOVE_DIR_NOMOVE)
+		{
+			HandleMoving(pCI, pCI->action);
+		}
+
+		if (pCI->hp <= 0)
+		{
+#ifdef LOG
+			wprintf(L"Session ID : %d Die\t HP : %d\n", pCI->ID, pCI->hp);
+#endif
+			disconnect(pCI->ID);
+		}
 	}
 }

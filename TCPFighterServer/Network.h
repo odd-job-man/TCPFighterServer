@@ -27,6 +27,7 @@ struct Header
 #define dfPACKET_MOVE_DIR_RD					5
 #define dfPACKET_MOVE_DIR_DD					6
 #define dfPACKET_MOVE_DIR_LD					7
+#define dfPACKET_MOVE_DIR_NOMOVE				8
 
 
 #define	dfPACKET_SC_CREATE_MY_CHARACTER			0
@@ -216,6 +217,7 @@ struct PACKET_SC_MOVE_STOP
 
 struct PACKET_CS_ATTACK1
 {
+	Header header;
 	char direction;
 	USHORT x;
 	USHORT y;
@@ -237,8 +239,9 @@ struct PACKET_CS_ATTACK1
 
 struct PACKET_SC_ATTACK1
 {
+	Header header;
 	int id;
-	char direction;
+	char viewDir;
 	USHORT x;
 	USHORT y;
 };
@@ -262,6 +265,7 @@ struct PACKET_SC_ATTACK1
 
 struct PACKET_CS_ATTACK2
 {
+	Header header;
 	char direction;
 	USHORT x;
 	USHORT y;
@@ -283,8 +287,9 @@ struct PACKET_CS_ATTACK2
 
 struct PACKET_SC_ATTACK2
 {
+	Header header;
 	int id;
-	char direction;
+	char viewDir;
 	USHORT x;
 	USHORT y;
 };
@@ -306,6 +311,7 @@ struct PACKET_SC_ATTACK2
 
 struct PACKET_CS_ATTACK3
 {
+	Header header;
 	char direction;
 	USHORT x;
 	USHORT y;
@@ -328,8 +334,9 @@ struct PACKET_CS_ATTACK3
 
 struct PACKET_SC_ATTACK3
 {
+	Header header;
 	int id;
-	char direction;
+	char viewDir;
 	USHORT x;
 	USHORT y;
 };
@@ -348,6 +355,7 @@ struct PACKET_SC_ATTACK3
 
 struct PACKET_SC_DAMAGE
 {
+	Header header;
 	int attackerId;
 	int attackedId;
 	char hpToReduce;
@@ -399,5 +407,6 @@ void deleteDisconnected();
 void sendAllRingBuffer();
 bool EnqNewRBForOtherCreate(IN Session* pNewUser);
 void EnqPacketBroadCast(IN char* pPacket, IN const size_t packetSize, IN OPTIONAL const int pTargetIdToExcept);
+void Update();
 
 

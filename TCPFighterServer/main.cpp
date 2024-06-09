@@ -1,7 +1,9 @@
 #include "Network.h"
 #include <windows.h>
 #pragma comment(lib,"Winmm.lib")
+
 constexpr int TICK_PER_FRAME = 20;
+constexpr int FRAME_PER_SECONDS = (1000) / TICK_PER_FRAME;
 
 
 int main()
@@ -14,16 +16,18 @@ int main()
 	timeBeginPeriod(1);
 	int time;
 	int oldFrameTick = timeGetTime();
+	int seconds = oldFrameTick;
+	int fpsCounter = 0;
 	while (true)
 	{
 		NetworkProc();
 		deleteDisconnected();
 		time = timeGetTime();
-		if (time - oldFrameTick < TICK_PER_FRAME)
+		if (time - oldFrameTick >= TICK_PER_FRAME)
 		{
-			//Sleep(TICK_PER_FRAME - (time - oldFrameTick));
+			Update();
+			oldFrameTick += TICK_PER_FRAME;
 		}
-		oldFrameTick += TICK_PER_FRAME;
 	}
 	timeEndPeriod(1);
 }

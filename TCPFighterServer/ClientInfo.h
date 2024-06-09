@@ -11,6 +11,16 @@ constexpr int dfRANGE_MOVE_LEFT = 10;
 constexpr int dfRANGE_MOVE_RIGHT = 630;
 constexpr int dfRANGE_MOVE_BOTTOM = 470;
 
+//---------------------------------------------------------------
+// 공격범위.
+//---------------------------------------------------------------
+constexpr int dfATTACK1_RANGE_X = 80;
+constexpr int dfATTACK2_RANGE_X = 90;
+constexpr int dfATTACK3_RANGE_X = 100;
+constexpr int dfATTACK1_RANGE_Y = 10;
+constexpr int dfATTACK2_RANGE_Y = 10;
+constexpr int dfATTACK3_RANGE_Y = 20;
+
 struct ClientInfo
 {
 	int ID;
@@ -18,6 +28,7 @@ struct ClientInfo
 	int x;
 	int y;
 	char viewDir;
+	int action;
 };
 
 
