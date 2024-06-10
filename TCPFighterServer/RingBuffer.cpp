@@ -1,7 +1,11 @@
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
 #include "RingBuffer.h"
 #include <math.h>
 #include <memory.h>
 
+#define new new ( _NORMAL_BLOCK , __FILE__ , __LINE__ )
 // 특이사항 : 원형 큐이기 때문에 할당 크기가 BUFFER_SIZE 보다 1 커야함
 RingBuffer::RingBuffer(void)
 {

@@ -10,6 +10,7 @@
 #define LOG
 #pragma comment(lib,"ws2_32.lib")
 
+#define new new ( _NORMAL_BLOCK , __FILE__ , __LINE__ )
 SOCKET g_listenSock;
 std::map<int, Session*>g_sessionMap;
 extern std::map<int, ClientInfo*> g_clientMap;
@@ -18,11 +19,41 @@ constexpr int MAX_USER_NUM = 30;
 
 std::queue<int> id_q;
 std::set<int> g_disconnected_id_set;
+void ClearClientInfo();
+void ClearSessionInfo()
+{
+	for (auto iter = g_sessionMap.begin(); iter != g_sessionMap.end();)
+	{
+		delete iter->second;
+		iter = g_sessionMap.erase(iter);
+	}
+	ClearClientInfo();
+	g_sessionMap.clear();
+	g_disconnected_id_set.clear();
+	closesocket(g_listenSock);
+	WSACleanup();
+}
+
 bool AcceptProc();
 void RecvProc(Session* pSession);
 void SendProc(Session* pSession);
-inline void EnqPacketUnicast(IN const int id,IN char* pPacket,IN const size_t packetSize)
+void MAKE_PACKET_SC_CREATE_MY_CHARACTER(PACKET_SC_CREATE_MY_CHARACTER* pSCMC, int id);
+void MAKE_PACKET_SC_CREATE_OTHER_CHARACTER(PACKET_SC_CREATE_OTHER_CHARARCTER* pPSCOC, const ClientInfo* pCI);
+void MAKE_PACKET_SC_DELETE_CHATACTER(PACKET_SC_DELETE_CHARACTER* pPSDC, int id);
+bool PacketProc(int id, BYTE packetType, char* pPacket);
+bool EnqNewRBForOtherCreate(IN Session* pNewUser);
+void EnqPacketBroadCast(IN char* pPacket, IN const size_t packetSize, IN OPTIONAL const int pTargetIdToExcept);
+void InitClientInfo(OUT ClientInfo* pCI, IN int id);
+
+inline bool isDeletedSession(const int id)
 {
+	return g_disconnected_id_set.find(id) != g_disconnected_id_set.end();
+}
+inline bool EnqPacketUnicast(IN const int id,IN char* pPacket,IN const size_t packetSize)
+{
+	if (isDeletedSession(id))
+		return false;
+
 	RingBuffer& sendRB = g_sessionMap.find(id)->second->sendBuffer;
 
 	int EnqRet = sendRB.Enqueue(pPacket, packetSize);
@@ -32,13 +63,14 @@ inline void EnqPacketUnicast(IN const int id,IN char* pPacket,IN const size_t pa
 		wprintf(L"Session ID : %d\tsendRingBuffer Full\t", id);
 #endif
 		disconnect(id);
+		return false;
 	}
+#ifdef LOG
+	wprintf(L"Session ID : %d, sendRB Enqueue Size : %d\tsendRB FreeSize : %d\n", id, EnqRet,sendRB.GetFreeSize());
+#endif
+	return true;
 }
 
-inline bool isDeletedSession(const int id)
-{
-	return g_disconnected_id_set.find(id) != g_disconnected_id_set.end();
-}
 
 bool NetworkInitAndListen()
 {
@@ -159,6 +191,7 @@ bool NetworkProc()
 			--selectRet;
 		}
 	}
+	return true;
 }
 
 bool AcceptProc()
@@ -195,18 +228,11 @@ bool AcceptProc()
 
 	PACKET_SC_CREATE_MY_CHARACTER PSCMC;
 	MAKE_PACKET_SC_CREATE_MY_CHARACTER(&PSCMC, newID);
-	int PSCMCEnqRet = pNewSession->sendBuffer.Enqueue((char*)&PSCMC, sizeof(PSCMC));
-	if (PSCMCEnqRet == 0)
-	{
 #ifdef LOG
-		wprintf(L"Session ID : %d\tsendRingBuffer Full\t", newID);
+	wprintf(L"Session ID : %d, PACKET_SC_CREATE_MY_CHARACTER\n", newID);
 #endif
-		disconnect(newID);
+	if (!EnqPacketUnicast(newID, (char*)&PSCMC, sizeof(PSCMC)))
 		return false;
-	}
-#ifdef LOG
-	wprintf(L"Session ID : %d, PACKET_SC_CREATE_MY_CHARACTER sendRB Enqueue Size : %d\n", newID, PSCMCEnqRet);
-#endif
 	PACKET_SC_CREATE_OTHER_CHARARCTER PSCOC;
 	MAKE_PACKET_SC_CREATE_OTHER_CHARACTER(&PSCOC, pNewClientInfo);
 #ifdef LOG
@@ -223,7 +249,6 @@ void RecvProc(Session* pSession)
 {
 	int recvRet;
 	int peekRet;
-	int dqRet;
 	if (isDeletedSession(pSession->id))
 	{
 		return;
@@ -350,21 +375,22 @@ void EnqPacketBroadCast(IN char* pPacket, IN const size_t packetSize, IN OPTIONA
 	{
 		Session* pSession = iter->second;
 		// 삭제될 예정인 애들 링버퍼에서는 안넣음 , 제외할 세션 링버퍼에는 안넣음
-		if (g_disconnected_id_set.find(pSession->id) != g_disconnected_id_set.end() || pSession->id == pTargetIdToExcept)
+		if (/*g_disconnected_id_set.find(pSession->id) != g_disconnected_id_set.end() || */pSession->id == pTargetIdToExcept)
 			continue;
 
-		RingBuffer& sendRB = pSession->sendBuffer;
-		int enqRet = sendRB.Enqueue(pPacket, packetSize);
-		if (enqRet == 0)
-		{
-#ifdef LOG
-			wprintf(L"Session ID : %d\tsendRingBuffer Full\t", pSession->id);
-#endif
-			disconnect(pSession->id);
-		}
-#ifdef LOG
-		wprintf(L"Session ID : %d,\t sendRB Enqueue Size : %d\tsendRB FreeSize : %d\n", pSession->id, enqRet, sendRB.GetFreeSize());
-#endif LOG
+		EnqPacketUnicast(pSession->id, pPacket, packetSize);
+//		RingBuffer& sendRB = pSession->sendBuffer;
+//		int enqRet = sendRB.Enqueue(pPacket, packetSize);
+//		if (enqRet == 0)
+//		{
+//#ifdef LOG
+//			wprintf(L"Session ID : %d\tsendRingBuffer Full\t", pSession->id);
+//#endif
+//			disconnect(pSession->id);
+//		}
+//#ifdef LOG
+//		wprintf(L"Session ID : %d,\t sendRB Enqueue Size : %d\tsendRB FreeSize : %d\n", pSession->id, enqRet, sendRB.GetFreeSize());
+//#endif LOG
 	}
 
 }
@@ -399,10 +425,12 @@ void SendProc(Session* pSession)
 				wprintf(L"session ID : %d, send() func error code : %d #\n", pSession->id, errCode);
 				disconnect(pSession->id);
 			}
+#ifdef LOG
 			else
 			{
 				wprintf(L"session ID : %d send WSAEWOULDBLOCK #\n", pSession->id);
 			}
+#endif
 			return;
 		}
 #ifdef LOG

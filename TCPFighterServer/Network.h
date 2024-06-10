@@ -404,9 +404,8 @@ bool NetworkProc();
 
 void disconnect(int id);
 void deleteDisconnected();
-void sendAllRingBuffer();
-bool EnqNewRBForOtherCreate(IN Session* pNewUser);
-void EnqPacketBroadCast(IN char* pPacket, IN const size_t packetSize, IN OPTIONAL const int pTargetIdToExcept);
+void ClearSessionInfo();
+//void sendAllRingBUffer();
 void Update();
 
 

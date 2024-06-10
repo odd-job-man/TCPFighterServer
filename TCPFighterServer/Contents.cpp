@@ -11,6 +11,8 @@ constexpr int MOVE_UNIT_X = 3;
 constexpr int MOVE_UNIT_Y = 2;
 extern int g_IdToAlloc;
 std::map<int, ClientInfo*> g_clientMap;
+#define new new ( _NORMAL_BLOCK , __FILE__ , __LINE__ )
+
 extern std::set<int> g_disconnected_id_set;
 void InitClientInfo(OUT ClientInfo* pCI, IN int id)
 {
@@ -23,6 +25,16 @@ void InitClientInfo(OUT ClientInfo* pCI, IN int id)
 #ifdef LOG
 	wprintf(L"Create Character # SessionID : %d\tX:%d\tY:%d\n", id, INIT_POS_X, INIT_POS_Y);
 #endif
+}
+
+void ClearClientInfo()
+{
+	for (auto iter = g_clientMap.begin(); iter != g_clientMap.end();)
+	{
+		delete iter->second;
+		iter = g_clientMap.erase(iter);
+	}
+	g_clientMap.clear();
 }
 inline bool isDeletedSession(const int id)
 {
@@ -164,6 +176,11 @@ void MAKE_PACKET_SC_ATTACK3(PACKET_SC_ATTACK3* pPSA3, int id, char dir, USHORT x
 void MAKE_PACKET_SC_DAMAGE(PACKET_SC_DAMAGE* pPSD, int attackerId, int attackedId, char hpToReduce);
 bool PROCESS_PACKET_CS_MOVE_START(int moveId, char* pPacket);
 bool PROCESS_PACKET_CS_MOVE_STOP(int stopId, char* pPacket);
+bool PROCESS_PACKET_CS_ATTACK1(int attackerId, char* pPacket);
+bool PROCESS_PACKET_CS_ATTACK2(int attackerId, char* pPacket);
+bool PROCESS_PACKET_CS_ATTACK3(int attackerId, char* pPacket);
+bool EnqNewRBForOtherCreate(IN Session* pNewUser);
+void EnqPacketBroadCast(IN char* pPacket, IN const size_t packetSize, IN OPTIONAL const int pTargetIdToExcept);
 
 bool PacketProc(int id, BYTE packetType, char* pPacket)
 {
@@ -180,7 +197,7 @@ bool PacketProc(int id, BYTE packetType, char* pPacket)
 	case dfPACKET_CS_ATTACK3:
 		return PROCESS_PACKET_CS_ATTACK3(id, pPacket);
 	default:
-		break;
+		return false;
 	}
 }
 
@@ -391,6 +408,7 @@ void Update()
 			disconnect(pCI->ID);
 		}
 	}
+	deleteDisconnected();
 }
 
 // 패킷 만드는 함수

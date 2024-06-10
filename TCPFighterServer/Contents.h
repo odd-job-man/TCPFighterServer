@@ -35,5 +35,5 @@ struct ClientInfo
 #define IN
 #define OPTIONAL
 #define OUT
-void InitClientInfo(OUT ClientInfo* pCI, IN int id);
+//void InitClientInfo(OUT ClientInfo* pCI, IN int id);
 void Update();
