@@ -1,4 +1,5 @@
 #include "Network.h"
+#include "Contents.h"
 #include <windows.h>
 #pragma comment(lib,"Winmm.lib")
 
@@ -8,6 +9,7 @@ constexpr int FRAME_PER_SECONDS = (1000) / TICK_PER_FRAME;
 
 int main()
 {
+	__int64 a = __rdtsc();
 	if (!NetworkInitAndListen())
 	{
 		return 0;

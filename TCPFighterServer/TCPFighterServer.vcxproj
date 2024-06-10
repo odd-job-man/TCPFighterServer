@@ -127,13 +127,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="ClientInfo.cpp" />
+    <ClCompile Include="Contents.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Network.cpp" />
     <ClCompile Include="RingBuffer.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="ClientInfo.h" />
+    <ClInclude Include="Contents.h" />
     <ClInclude Include="Network.h" />
     <ClInclude Include="RingBuffer.h" />
   </ItemGroup>
