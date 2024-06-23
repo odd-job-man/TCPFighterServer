@@ -93,8 +93,8 @@ inline void HandleMoving(IN ClientInfo* pCI, IN int moveDir)
 #ifdef LOG
 			wprintf(L"Session ID : %d #\tDIR : RU\tMove Simulate X : %d, Y : %d\n", pCI->ID, pCI->x, pCI->y);
 #endif
-			break;
 		}
+		break;
 	case dfPACKET_MOVE_DIR_RR:
 		if (!isNoX)
 		{
